@@ -1,4 +1,3 @@
-
 import os
 import re
 import subprocess
@@ -48,6 +47,33 @@ def clean_youtube_url(url: str) -> str:
             return f"https://www.youtube.com/watch?v={queries['v'][0]}"
     return url
 
+def download_video_multiclient(target_url: str, output_path: str):
+    # Multiple client profiles to completely bypass SABR 403 Forbidden & Cloud Blocks
+    attempts = [
+        ["--extractor-args", "youtube:player_client=ios", "-f", "b/best"],
+        ["--extractor-args", "youtube:player_client=mweb", "-f", "b/best"],
+        ["--extractor-args", "youtube:player_client=web_embedded", "-f", "b/best"],
+        ["--extractor-args", "youtube:player_client=android_creator,android", "-f", "b/best"],
+        ["-f", "best[height<=720]/best"]
+    ]
+    
+    last_err = ""
+    for client_args in attempts:
+        cmd = [
+            "yt-dlp",
+            "--no-check-certificates",
+            "--force-ipv4",
+            *client_args,
+            "-o", output_path,
+            target_url
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+            return True
+        last_err = res.stderr or res.stdout
+
+    raise RuntimeError(f"Download blocked by YouTube: {last_err[:300]}")
+
 if st.button("🚀 Generate Short Clip", type="primary"):
     if not video_url and not uploaded_file:
         st.warning("Pehle video ka link daaliye ya file upload kijiye!")
@@ -59,34 +85,13 @@ if st.button("🚀 Generate Short Clip", type="primary"):
 
                     # 1. Obtain Video
                     if uploaded_file:
-                        status.write("📥 Step 1/3: Uploaded video save ho rahi hai...")
+                        status.write("📥 Step 1/3: Phone se uploaded video save ho rahi hai...")
                         with open(video_output, "wb") as f:
                             f.write(uploaded_file.getbuffer())
                     else:
-                        status.write("📥 Step 1/3: YouTube video download ho rahi hai...")
+                        status.write("📥 Step 1/3: YouTube video bypass engine se download ho rahi hai...")
                         target_url = clean_youtube_url(video_url)
-                        
-                        cmd_down = [
-                            "yt-dlp",
-                            "--no-check-certificates",
-                            "--extractor-args", "youtube:player_client=android,web",
-                            "-f", "best[height<=720]/bestvideo[height<=720]+bestaudio/best",
-                            "-o", video_output,
-                            target_url
-                        ]
-                        res = subprocess.run(cmd_down, capture_output=True, text=True)
-                        if res.returncode != 0:
-                            cmd_fallback = [
-                                "yt-dlp",
-                                "--no-check-certificates",
-                                "-f", "b/best",
-                                "-o", video_output,
-                                target_url
-                            ]
-                            res2 = subprocess.run(cmd_fallback, capture_output=True, text=True)
-                            if res2.returncode != 0:
-                                error_msg = res.stderr or res2.stderr or "Unknown download error"
-                                raise RuntimeError(f"YouTube Download Error: {error_msg}")
+                        download_video_multiclient(target_url, video_output)
 
                     # Determine Start Time
                     if start_point == "Shuruat ka Hook (First 30s)":
